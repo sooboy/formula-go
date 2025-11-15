@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/DTrader-store/formula-go"
+	"github.com/DTrader-store/formula-go/examples/helpers"
 )
 
 // MA Cross Strategy - Golden Cross and Death Cross Detection
@@ -16,7 +17,7 @@ func main() {
 	fmt.Println("Detecting Golden Cross and Death Cross signals using real market data\n")
 
 	// Initialize TDX client
-	client, err := NewTDXClient(DefaultTDXServer())
+	client, err := helpers.NewTDXClient(helpers.DefaultTDXServer())
 	if err != nil {
 		log.Fatalf("Failed to create TDX client: %v", err)
 	}
@@ -29,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to fetch market data: %v", err)
 	}
-	fmt.Printf("Fetched %d data points\n\n", len(marketData.Close))
+	fmt.Printf("Fetched %d data points\n\n", len(marketData))
 
 	// Strategy 1: MA5 and MA10 Cross (Short-term)
 	fmt.Println("--- Strategy 1: MA5/MA10 Cross (Short-term) ---")
@@ -48,13 +49,13 @@ func main() {
 	runMACrossStrategy(marketData, 20, 60)
 }
 
-func runMACrossStrategy(data *formula.MarketData, fastPeriod, slowPeriod int) {
+func runMACrossStrategy(data []*formula.MarketData, fastPeriod, slowPeriod int) {
 	// Formula to detect MA cross
 	formulaText := fmt.Sprintf(`
-		FAST_MA: MA(CLOSE, %d);
-		SLOW_MA: MA(CLOSE, %d);
-		GOLDEN_CROSS: CROSS(FAST_MA, SLOW_MA);
-		DEATH_CROSS: CROSS(SLOW_MA, FAST_MA);
+		FAST_MA := MA(CLOSE, %d)
+		SLOW_MA := MA(CLOSE, %d)
+		GOLDEN_CROSS := CROSS(FAST_MA, SLOW_MA)
+		DEATH_CROSS := CROSS(SLOW_MA, FAST_MA)
 	`, fastPeriod, slowPeriod)
 
 	// Execute formula
@@ -65,8 +66,8 @@ func runMACrossStrategy(data *formula.MarketData, fastPeriod, slowPeriod int) {
 	}
 
 	// Analyze signals
-	goldenCrosses := findSignals(result.Lines["GOLDEN_CROSS"].Data)
-	deathCrosses := findSignals(result.Lines["DEATH_CROSS"].Data)
+	goldenCrosses := findSignals(getOutputData(result, "GOLDEN_CROSS"))
+	deathCrosses := findSignals(getOutputData(result, "DEATH_CROSS"))
 
 	fmt.Printf("Fast MA: %d, Slow MA: %d\n", fastPeriod, slowPeriod)
 	fmt.Printf("Golden Crosses detected: %d\n", len(goldenCrosses))
@@ -75,12 +76,12 @@ func runMACrossStrategy(data *formula.MarketData, fastPeriod, slowPeriod int) {
 	if len(goldenCrosses) > 0 {
 		fmt.Println("\nGolden Cross positions (bullish signals):")
 		for _, pos := range goldenCrosses {
-			if pos < len(data.Close) {
+			if pos < len(data) {
 				fmt.Printf("  Position %d: Price = %.2f, Fast MA = %.2f, Slow MA = %.2f\n",
 					pos,
-					data.Close[pos],
-					result.Lines["FAST_MA"].Data[pos],
-					result.Lines["SLOW_MA"].Data[pos])
+					data[pos].Close,
+					getOutputData(result, "FAST_MA")[pos],
+					getOutputData(result, "SLOW_MA")[pos])
 			}
 		}
 	}
@@ -88,30 +89,40 @@ func runMACrossStrategy(data *formula.MarketData, fastPeriod, slowPeriod int) {
 	if len(deathCrosses) > 0 {
 		fmt.Println("\nDeath Cross positions (bearish signals):")
 		for _, pos := range deathCrosses {
-			if pos < len(data.Close) {
+			if pos < len(data) {
 				fmt.Printf("  Position %d: Price = %.2f, Fast MA = %.2f, Slow MA = %.2f\n",
 					pos,
-					data.Close[pos],
-					result.Lines["FAST_MA"].Data[pos],
-					result.Lines["SLOW_MA"].Data[pos])
+					data[pos].Close,
+					getOutputData(result, "FAST_MA")[pos],
+					getOutputData(result, "SLOW_MA")[pos])
 			}
 		}
 	}
 
 	// Show current status (last data point)
-	lastIdx := len(data.Close) - 1
+	lastIdx := len(data) - 1
 	if lastIdx >= 0 {
 		fmt.Printf("\nCurrent Status (Last bar):\n")
-		fmt.Printf("  Close Price: %.2f\n", data.Close[lastIdx])
-		fmt.Printf("  Fast MA(%d): %.2f\n", fastPeriod, result.Lines["FAST_MA"].Data[lastIdx])
-		fmt.Printf("  Slow MA(%d): %.2f\n", slowPeriod, result.Lines["SLOW_MA"].Data[lastIdx])
+		fmt.Printf("  Close Price: %.2f\n", data[lastIdx].Close)
+		fmt.Printf("  Fast MA(%d): %.2f\n", fastPeriod, getOutputData(result, "FAST_MA")[lastIdx])
+		fmt.Printf("  Slow MA(%d): %.2f\n", slowPeriod, getOutputData(result, "SLOW_MA")[lastIdx])
 
-		if result.Lines["FAST_MA"].Data[lastIdx] > result.Lines["SLOW_MA"].Data[lastIdx] {
+		if getOutputData(result, "FAST_MA")[lastIdx] > getOutputData(result, "SLOW_MA")[lastIdx] {
 			fmt.Println("  Trend: BULLISH (Fast MA > Slow MA)")
 		} else {
 			fmt.Println("  Trend: BEARISH (Fast MA < Slow MA)")
 		}
 	}
+}
+
+// getOutputData gets output data by name from formula result
+func getOutputData(result *formula.FormulaResult, name string) []float64 {
+	for _, output := range result.Outputs {
+		if output.Name == name {
+			return output.Data
+		}
+	}
+	return nil
 }
 
 // findSignals finds all positions where signal is 1 (cross detected)
